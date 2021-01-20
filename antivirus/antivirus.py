@@ -75,7 +75,7 @@ def interactiveMain(stdscr):
     )
     while True:
         scanType = ui.getScanType()
-        if scanType == 'quit':
+        if scanType == 'back':
             return
         elif scanType == 0:
             path = ui.getPath()
@@ -83,24 +83,24 @@ def interactiveMain(stdscr):
                 continue
             else:
                 fast = ui.getFast()
-                if fast == 'quit':
+                if fast == 'back':
                     continue
                 scanTh = ScanThread(scanner, path, not fast)
                 scanTh.start()
                 ui.scanWindow(scanTh)
-                report = scanner.getReport()
-                ui.displayReport(report, scanner)
+                ui.displayReport(scanner)
                 continue
         else:
             path = ui.getPath()
             if path == 'back':
                 continue
             else:
+                lastOk = False
                 time = ui.getTime()
                 if time == 'back':
                     continue
                 while True:
-                    act = ui.periodicScanMenu(path, time)
+                    act = ui.periodicScanMenu(path, time, lastOk)
                     if act == 'back':
                         break
                     scanTh = ScanThread(scanner, path, True)
@@ -108,10 +108,11 @@ def interactiveMain(stdscr):
                     ui.scanWindow(scanTh)
                     report = scanner.getReport()
                     if len(report[0] + report[1]) != 0:
-                        ui.displayReport(report, scanner)
+                        ui.displayReport(scanner)
+                    elif scanner.aborted:
+                        lastOk = None
                     else:
-                        ui.status = 'Last scan: ok'
-                ui.status = ''
+                        lastOk = True
 
 
 if __name__ == '__main__':

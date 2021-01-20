@@ -15,6 +15,7 @@ class Scanner():
             del self.fileIndex[path]
 
     def __init__(self, bodySigPath, hashSigPath, callbacks):
+        self.aborted = False
         self.callbacks = callbacks
         self.report = ScanReport()
         self._signatures = sigBase.SigBase(bodySigPath, hashSigPath)
@@ -91,9 +92,11 @@ class Scanner():
                 progress = (100*counter)//fileNum
                 cpth = str(filePath)
                 if self.callbacks[0](progress, cpth):
-                    break
+                    self.aborted = True
+                    return
             self.scanFile(filePath, fast)
             counter += 1
+        self.aborted = False
 
     def cutOut(self, fixableInfo):
         path = fixableInfo[0]

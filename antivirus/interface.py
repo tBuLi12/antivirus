@@ -1,76 +1,17 @@
 import curses
 import time
 from pathlib import Path
+BACK_KEY = 27
+ENTER_KEY = 10
 
 
 class Interface():
-    def getDirOpt(self, content):
-        current, search, length, color = self.getCorrectStr(content)
-        sLen = len(search)
-        dirNames = []
-        fileNames = []
-        try:
-            d = list(current.iterdir())
-        except PermissionError:
-            return [], current, length, len(dirNames), color
-        except NotADirectoryError:
-            return [], current, length, len(dirNames), curses.color_pair(1)
-        for entry in d:
-            try:
-                if entry.name[:sLen] == search:
-                    if entry.is_file():
-                        fileNames.append(entry.name)
-                    elif entry.is_dir():
-                        dirNames.append(entry.name)
-            except PermissionError:
-                pass
-        if len(dirNames) + len(fileNames) == 0 and search:
-            color = curses.color_pair(1)
-            for entry in d:
-                try:
-                    if entry.is_file():
-                        fileNames.append(entry.name)
-                    elif entry.is_dir():
-                        dirNames.append(entry.name)
-                except PermissionError:
-                    pass
-        dirNames.sort()
-        fileNames.sort()
-        return (dirNames + fileNames), current, length, len(dirNames), color
-
-    def getCorrect(self, path):
-        parent = path.parent
-        if parent.exists():
-            return parent
-        else:
-            return self.getCorrect(parent)
-
-    def getCorrectStr(self, pathStr):
-        if pathStr[-1] == '/':
-            path = Path(pathStr + 'a')
-            search = ''
-        else:
-            path = Path(pathStr)
-            search = path.name
-        if path.parent.exists():
-            ret = path.parent
-            color = curses.color_pair(0)
-        else:
-            ret = self.getCorrect(path.parent)
-            search = ''
-            color = curses.color_pair(1)
-        length = len(str(ret))
-        if length > 1:
-            length += 1
-        return ret, search, length, color
-
     def __init__(self, stdscr):
         self.quit = False
         self.stdscr = stdscr
         self.progress = 0
         self.filProgress = 0
         self.cpth = ''
-        self.status = ''
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.curs_set(0)
@@ -84,303 +25,126 @@ class Interface():
         self.filProgress = val
         return self.quit
 
-    def drawLegend(self, legend):
-        maxY, maxX = self.stdscr.getmaxyx()
-        self.stdscr.addstr(
-            maxY-1,
-            0,
-            '  '.join(legend)
-        )
-        if self.status:
-            self.stdscr.addstr(
-                maxY-1,
-                maxX-1-len(self.status),
-                self.status,
-                curses.color_pair(2)
-            )
+    def setQuit(self, val):
+        self.quit = val
+
+    def getProg(self):
+        return (self.progress, self.filProgress, self.cpth)
 
     def getScanType(self):
         choices = ['standard scan', 'periodic scan']
-        menu = ChoiceMenu(2, 1, 0, choices, self.stdscr, False)
-        while True:
-            self.stdscr.erase()
-            self.stdscr.addstr(0, 0, 'Choose:')
-            menu.draw()
-            self.drawLegend([
-                'ESC - quit',
-                'ENTER - select'
-            ])
-            self.stdscr.refresh()
-            choice = menu.get()
-            if choice is not None:
-                return choice
+        with SimpleChoice(self.stdscr, choices, 'Choose:') as win:
+            action = win.get()
+        return action
 
     def getFast(self):
-        menu = ChoiceMenu(2, 1, 0, ['Yes', 'No'], self.stdscr, False)
-        while True:
-            self.stdscr.erase()
-            self.stdscr.addstr(0, 0, 'Do you wish to use fast scanning?')
-            menu.draw()
-            self.drawLegend([
-                'ESC - back',
-                'ENTER - select'
-            ])
-            self.stdscr.refresh()
-            choice = menu.get()
-            if choice is not None:
-                return choice
+        choices = ['Yes', 'No']
+        msg = 'Do you wish to use fast scanning?'
+        with SimpleChoice(self.stdscr, choices, msg) as win:
+            action = win.get()
+        return action
 
     def getTime(self):
-        nextRed = False
-        color = curses.color_pair(0)
-        scanTime = list('00:00')
-        curses.curs_set(1)
-        cursor = 0
-        curLocs = [0, 1, 3, 4]
-        while True:
-            self.stdscr.erase()
-            self.drawLegend([
-                'ESC - back',
-                'ENTER - confirm'
-            ])
-            msg = 'Enter time between periodic scans: (hh:mm)'
-            self.stdscr.addstr(0, 0, msg)
-            if nextRed:
-                color = curses.color_pair(1)
-                nextRed = False
-            self.stdscr.addstr(1, 0, ''.join(scanTime), color)
-            color = curses.color_pair(0)
-            self.stdscr.move(1, curLocs[cursor])
-            self.stdscr.refresh()
-            key = self.stdscr.getch()
-            if 47 < key < 58:
-                if cursor == 2 and key > 53:
-                    continue
-                scanTime[curLocs[cursor]] = chr(key)
-                if cursor < 3:
-                    cursor += 1
-                continue
-            if key == curses.KEY_LEFT:
-                if cursor > 0:
-                    cursor -= 1
-                continue
-            if key == curses.KEY_RIGHT:
-                if cursor < 3:
-                    cursor += 1
-                continue
-            if key in (curses.KEY_ENTER, 10, 13):
-                scanTime = ''.join(scanTime)
-                ret = int(scanTime[:2])*3600 + int(scanTime[-2:])*60
-                if ret != 0:
-                    curses.curs_set(0)
-                    return ret
-                nextRed = True
-                scanTime = list('00:00')
-            if key == 27:
-                curses.curs_set(0)
-                return 'back'
+        with TimeMenu(self.stdscr) as win:
+            return win.get()
 
     def getPath(self):
-        nextRed = False
-        inText = True
-        menu = ChoiceMenu(0, 2, -1, [], self.stdscr, True)
-        curses.curs_set(1)
-        text = PathTyper(0, 1, self.stdscr)
-        color = curses.color_pair(0)
-        shift = 0
-        while True:
-            if inText:
-                opts = self.getDirOpt(text.content)
-                options, current, length, chInd, color = opts
-                menuLen = max([min(20, len(o)) for o in options]+[0])
-                disLen = max(menuLen+length, len(text.content)) + 4
-                disLen -= self.stdscr.getmaxyx()[1]
-                shift = max(disLen, 0)
-                text.begin = shift
-                menu.options = options
-                menu.maxCur = len(options) - 1
-                menu.xLoc = length-shift
-                menu.changeIndex = chInd
-            self.stdscr.erase()
-            self.stdscr.addstr(0, 0, 'Enter path here:')
-            self.drawLegend([
-                'ESC - back',
-                'ENTER - confirm',
-                'DOWN - enter menu'
-            ])
-            menu.draw()
-            if nextRed:
-                text.draw(curses.color_pair(1))
-                nextRed = False
-            else:
-                text.draw(color)
-            self.stdscr.refresh()
-            if inText:
-                stat = text.getstr()
-                if stat is not None:
-                    if stat == 'back':
-                        curses.curs_set(0)
-                        return stat
-                    elif stat == 'fill':
-                        curStr = str(current)
-                        if len(curStr) == 1:
-                            text.content = '/'+menu.options[0]
-                        else:
-                            text.content = curStr+'/'+menu.options[0]
-                        if Path(text.content).is_dir():
-                            text.content += '/'
-                        text.cursor = len(text.content)
-                        continue
-                    elif stat == 'menu':
-                        if menu.maxCur == -1:
-                            continue
-                        menu.cursor = 0
-                        curses.curs_set(0)
-                        inText = False
-                        continue
-                    path = Path(text.content)
-                    if path.exists():
-                        curses.curs_set(0)
-                        return path
-                    else:
-                        nextRed = True
-            else:
-                menuStat = menu.get()
-                if menuStat is not None:
-                    if type(menuStat) == int:
-                        curStr = str(current)
-                        if len(curStr) == 1:
-                            text.content = '/'+menu.options[menuStat]
-                        else:
-                            text.content = curStr+'/'+menu.options[menuStat]
-                        if Path(text.content).is_dir():
-                            text.content += '/'
-                        text.cursor = len(text.content)
-                        curses.curs_set(1)
-                        inText = True
-                    if menuStat == 'out':
-                        curses.curs_set(1)
-                        inText = True
-                    if menuStat == 'quit':
-                        return 'back'
+        with PathMenu(self.stdscr) as win:
+            action = win.get()
+        return action
 
     def scanWindow(self, scanTh):
-        self.stdscr.timeout(0)
-        while True:
-            self.stdscr.erase()
-            msg = f'scanning:{self.cpth} ({self.filProgress}%)'
-            self.stdscr.addstr(0, 0, msg)
-            self.stdscr.addstr(1, 0, f'{self.progress}% done')
-            self.drawLegend([
-                'ESC - abort scan'
-            ])
-            self.stdscr.refresh()
-            scanTh.join(0.05)
-            if scanTh.isAlive():
-                key = self.stdscr.getch()
-                if key == 27:
-                    self.quit = True
-            else:
-                self.stdscr.timeout(-1)
-                self.quit = False
-                self.progress = 0
-                break
+        with ScanWin(scanTh, self.stdscr, self.setQuit, self.getProg) as win:
+            win.get()
+        self.progress = 0
+        self.filProgress = 0
+        self.cpth = ''
 
-    def displayReport(self, report, scanner):
-        triedFix = False
-        reportLines = []
-        if len(report[0] + report[1]) == 0:
-            reportLines.append('No infected files found')
-        else:
-            reportLines.append('The following files were found infected:')
-            for info in (report[0] + report[1]):
-                reportLines.append(f'{info[0]} -> {info[1]}')
-        if report[2]:
-            reportLines.append('Access was denied to the following:')
-            for info in report[2]:
-                reportLines.append(str(info))
-        drawBegin = 0
-        lRep = len(reportLines)
-        while True:
-            self.stdscr.erase()
-            counter = 0
-            space, maxX = self.stdscr.getmaxyx()
-            space -= 3
-            for line in reportLines[drawBegin:drawBegin+space]:
-                if len(line) > maxX:
-                    dLine = '...'+line[-(maxX-3):]
-                else:
-                    dLine = line
-                self.stdscr.addstr(counter, 0, dLine)
-                counter += 1
-            self.drawLegend([
-                'ESC - back',
-                'S - save report',
-                'F - fix infexted files'
-            ])
-            self.stdscr.refresh()
-            key = self.stdscr.getch()
-            if key == curses.KEY_DOWN:
-                if drawBegin+space < lRep:
-                    drawBegin += 1
-                continue
-            if key == curses.KEY_UP:
-                if drawBegin > 0:
-                    drawBegin -= 1
-                continue
-            if key == 27:
-                self.status = ''
-                break
-            if key == ord('s'):
-                c = 0
-                savePath = Path('./scanReports/report.txt')
-                while savePath.exists():
-                    c += 1
-                    savePath = Path(f'./scanReports/report{c}.txt')
-                savePath.write_text('\n'.join(reportLines))
-                self.status = f'Saved to {savePath.name}'
-            if key == ord('f'):
-                if triedFix:
-                    continue
-                triedFix = True
-                fixed = []
-                for fixable in report[0]:
-                    if scanner.cutOut(fixable):
-                        fixed.append(str(fixable[0]))
-                if fixed:
-                    reportLines.append('The following files were fixed:')
-                    reportLines.extend(fixed)
-                else:
-                    reportLines.append('No files could be fixed')
-                lRep = len(reportLines)
+    def displayReport(self, scanner):
+        with ReportWin(self.stdscr, scanner) as win:
+            win.get()
 
-    def periodicScanMenu(self, path, period):
-        self.stdscr.timeout(30)
-        scanTime = period + time.time()
-        while True:
-            remaining = int(scanTime-time.time())
-            if remaining < 1:
-                self.stdscr.timeout(-1)
-                return 'scan'
-            self.stdscr.erase()
-            self.drawLegend([
-                'ESC - back'
-            ])
-            pathStr = str(path)
-            maxL = self.stdscr.getmaxyx()[1]-9
-            if len(str(path)) > maxL:
-                pathStr = '...'+pathStr[-(maxL-3):]
-            self.stdscr.addstr(0, 0, f'To scan: {pathStr}')
-            self.stdscr.addstr(1, 0, f'Time to next scan: {remaining}s')
-            self.stdscr.refresh()
-            key = self.stdscr.getch()
-            if key == 27:
-                self.stdscr.timeout(-1)
-                return 'back'
+    def periodicScanMenu(self, path, period, lastOk):
+        with PeriodicMenu(self.stdscr, path, period, lastOk) as win:
+            return win.get()
+
+
+class Window():
+    def __init__(self, stdscr, actions, legend):
+        maxY = stdscr.getmaxyx()[0]
+        self.legend = Text(stdscr, 0, maxY-1, legend)
+        self.status = Text(stdscr, 0, maxY-1, '')
+        self.stdscr = stdscr
+        self.actions = actions
+        self.items = []
+
+    def getAction(self):
+        key = self.stdscr.getch()
+        if key in self.actions:
+            return self.actions[key]()
+        return None
+
+    def setStatus(self, status, color=None):
+        if color:
+            self.status.color = color
+        self.status.text = status
+
+    def draw(self):
+        self.stdscr.erase()
+        maxY, maxX = self.stdscr.getmaxyx()
+        self.status.xLoc = maxX - 1 - len(self.status.text)
+        self.status.yLoc = maxY-1
+        self.legend.yLoc = maxY-1
+        self.status.draw()
+        self.legend.draw()
+        for item in self.items:
+            item.draw()
+        self.stdscr.refresh()
+
+    def __enter__(self):
+        raise NotImplementedError
+
+    def __exit__(self, type, value, traceback):
+        raise NotImplementedError
 
 
 class ChoiceMenu():
+    def down(self):
+        if self.maxCur == -1:
+            return None
+        if self.cursor != self.maxCur:
+            maxY = self.stdscr.getmaxyx()[0]
+            if self.cursor == (maxY+self.drawBegin-self.yLoc-3):
+                self.drawBegin += 1
+            self.cursor += 1
+        return None
+
+    def up(self):
+        if self.cursor > 0:
+            if self.cursor == self.drawBegin:
+                self.drawBegin -= 1
+            self.cursor -= 1
+        elif self.out and self.cursor == 0:
+            self.cursor = -1
+            return 'out'
+        return None
+
+    def confirm(self):
+        self.drawBegin = 0
+        ret = self.cursor
+        self.cursor = -1
+        return ret
+
+    def back(self):
+        return 'back'
+
     def __init__(self, xLoc, yLoc, cStart, options, stdscr, out):
+        self.actions = {
+            BACK_KEY: self.back,
+            curses.KEY_DOWN: self.down,
+            curses.KEY_UP: self.up,
+            ENTER_KEY: self.confirm
+        }
         self.stdscr = stdscr
         self.cursor = cStart
         self.xLoc = xLoc
@@ -423,43 +187,353 @@ class ChoiceMenu():
                 )
             counter += 1
 
+
+class Text():
+    def __init__(self, stdscr, x, y, text):
+        self.stdscr = stdscr
+        self.text = text
+        self.xLoc = x
+        self.yLoc = y
+        self.color = curses.color_pair(0)
+
+    def draw(self):
+        maxX = self.stdscr.getmaxyx()[1]
+        if len(self.text) + self.xLoc + 1 > maxX:
+            prnt = '...'+self.text[-(maxX-4-self.xLoc):]
+        else:
+            prnt = self.text
+        self.stdscr.addstr(self.yLoc, self.xLoc, prnt, self.color)
+
+
+class TimeMenu(Window):
+    def __init__(self, stdscr):
+        self.stdscr = stdscr
+        msg = 'Enter time between periodic scans: (hh:mm)'
+        self.text = Text(stdscr, 0, 0, msg)
+        self.time = TimeField(1, 1, self.stdscr)
+        legend = 'ESC: back, ENTER: confirm'
+        super().__init__(stdscr, self.time.actions, legend)
+        self.items = [self.text, self.time]
+
     def get(self):
         while True:
-            key = self.stdscr.getch()
-            if key == curses.KEY_DOWN:
-                if self.maxCur == -1:
+            self.draw()
+            action = self.getAction()
+            if action is not None:
+                if action == 'back':
+                    return action
+                elif action == 'invalid':
+                    self.setStatus('Time cannot be 0', curses.color_pair(1))
                     continue
-                if self.cursor != self.maxCur:
-                    maxX = self.stdscr.getmaxyx()[0]
-                    if self.cursor == (maxX+self.drawBegin-self.yLoc-3):
-                        self.drawBegin += 1
-                    self.cursor += 1
-                return None
-            elif key == curses.KEY_UP:
-                if self.cursor > 0:
-                    if self.cursor == self.drawBegin:
-                        self.drawBegin -= 1
-                    self.cursor -= 1
-                elif self.out and self.cursor == 0:
-                    self.cursor = -1
-                    return 'out'
-                return None
-            elif key in (curses.KEY_ENTER, 10, 13):
-                self.drawBegin = 0
-                ret = self.cursor
-                self.cursor = -1
-                return ret
-            elif key == 27:
-                return 'quit'
+                return int(action[:2])*3600 + int(action[-2:])*60
+            else:
+                self.setStatus('')
+
+    def getAction(self):
+        key = self.stdscr.getch()
+        if 47 < key < 58:
+            self.actions['input'](key)
+            return None
+        if key in self.actions:
+            return self.actions[key]()
+        return None
+
+    def __enter__(self):
+        curses.curs_set(1)
+        return self
+
+    def __exit__(self, type, value, traceback):
+        curses.curs_set(0)
+        return False
 
 
-class PathTyper():
+class PathMenu(Window):
+    def getCorrect(self, path):
+        parent = path.parent
+        if parent.exists():
+            return parent
+        else:
+            return self.getCorrect(parent)
+
+    def getCorrectStr(self, pathStr):
+        if pathStr[-1] == '/':
+            path = Path(pathStr + 'a')
+            search = ''
+        else:
+            path = Path(pathStr)
+            search = path.name
+        if path.parent.exists():
+            ret = path.parent
+            color = curses.color_pair(0)
+        else:
+            ret = self.getCorrect(path.parent)
+            search = ''
+            color = curses.color_pair(1)
+        length = len(str(ret))
+        if length > 1:
+            length += 1
+        return ret, search, length, color
+
+    def refreshMenu(self, content):
+        current, search, length, color = self.getCorrectStr(content)
+        sLen = len(search)
+        dirNames = []
+        fileNames = []
+        try:
+            d = list(current.iterdir())
+        except PermissionError:
+            return [], current, length, len(dirNames), color
+        except NotADirectoryError:
+            return [], current, length, len(dirNames), curses.color_pair(1)
+        for entry in d:
+            try:
+                if entry.name[:sLen] == search:
+                    if entry.is_file():
+                        fileNames.append(entry.name)
+                    elif entry.is_dir():
+                        dirNames.append(entry.name)
+            except PermissionError:
+                pass
+        if len(dirNames) + len(fileNames) == 0 and search:
+            color = curses.color_pair(1)
+            for entry in d:
+                try:
+                    if entry.is_file():
+                        fileNames.append(entry.name)
+                    elif entry.is_dir():
+                        dirNames.append(entry.name)
+                except PermissionError:
+                    pass
+        dirNames.sort()
+        fileNames.sort()
+        self.menu.options = (dirNames + fileNames)
+        self.menu.maxCur = len(self.menu.options) - 1
+        menuLen = max([min(20, len(o)) for o in self.menu.options]+[0])
+        disLen = max(menuLen+length, len(content)) + 4
+        disLen -= self.stdscr.getmaxyx()[1]
+        shift = max(disLen, 0)
+        self.content.begin = shift
+        self.menu.xLoc = max(0, length-shift)
+        self.menu.changeIndex = len(dirNames)
+        self.content.color = color
+
+    def confirm(self):
+        path = Path(self.content.content)
+        if path.exists():
+            return path
+        else:
+            self.content.color = curses.color_pair(1)
+            return None
+
+    def fillWith(self, i):
+        fixedContent = str(self.getCorrect(Path(self.content.content+"a")))
+        if len(fixedContent) != 1:
+            fixedContent = fixedContent + '/'
+        self.content.content = fixedContent + self.menu.options[i]
+        if Path(self.content.content).is_dir():
+            self.content.content += '/'
+        self.content.cursor = len(self.content.content)
+
+    def fill(self):
+        col = self.content.color != curses.color_pair(1)
+        con = len(self.menu.options) != 0
+        if col and con:
+            self.fillWith(0)
+            self.refreshMenu(self.content.content)
+        return None
+
+    def enterMenu(self):
+        if self.menu.maxCur == -1:
+            return None
+        self.menu.cursor = 0
+        curses.curs_set(0)
+        self.location = 'menu'
+        self.actions = self.menu.actions
+        return None
+
+    def leaveMenu(self):
+        curses.curs_set(1)
+        self.location = 'text'
+        self.actions = self.content.actions
+        return None
+
+    def __init__(self, stdscr):
+        self.objActions = {
+            'back': lambda: 'back',
+            True: self.confirm,
+            'fill': self.fill,
+            'menu': self.enterMenu,
+            'out': self.leaveMenu
+        }
+        self.menu = ChoiceMenu(1, 1, -1, [], stdscr, True)
+        self.content = PathText(stdscr, 0, 0)
+        self.location = 'text'
+        legend = 'ESC: back, ENTER: confirm, DOWN: enter menu, TAB: autofill'
+        super().__init__(stdscr, self.content.actions, legend)
+        self.items = [self.menu, self.content]
+        self.refreshMenu('/')
+
+    def getAction(self):
+        key = self.stdscr.getch()
+        if 177 > key > 40:
+            if 'input' in self.actions:
+                self.actions['input'](key)
+                self.refreshMenu(self.content.content)
+                return None
+        if key in self.actions:
+            act = self.actions[key]()
+            if key == curses.KEY_BACKSPACE:
+                self.refreshMenu(self.content.content)
+            return act
+        return None
+
+    def get(self):
+        while True:
+            self.draw()
+            action = self.getAction()
+            if action is not None:
+                if type(action) is int:
+                    self.fillWith(action)
+                    self.refreshMenu(self.content.content)
+                    self.leaveMenu()
+                    continue
+                action = self.objActions[action]()
+            if action is not None:
+                return action
+
+    def __enter__(self):
+        curses.curs_set(1)
+        return self
+
+    def __exit__(self, type, value, traceback):
+        curses.curs_set(0)
+        return False
+
+
+class TimeField():
+    def left(self):
+        if self.cursor != 0:
+            self.cursor -= 1
+        return None
+
+    def right(self):
+        if self.cursor < 3:
+            self.cursor += 1
+        return None
+
+    def confirm(self):
+        time = ''.join(self.time)
+        if time != '00:00':
+            return time
+        return 'invalid'
+
+    def back(self):
+        return 'back'
+
+    def inp(self, key):
+        if key < 54 or self.cursor != 2:
+            self.time[[0, 1, 3, 4][self.cursor]] = chr(key)
+            self.right()
+        return None
+
+    def __init__(self, xLoc, yLoc, stdscr):
+        self.time = list('00:00')
+        self.actions = {
+            BACK_KEY: self.back,
+            curses.KEY_LEFT: self.left,
+            curses.KEY_RIGHT: self.right,
+            ENTER_KEY: self.confirm,
+            'input': self.inp
+        }
+        self.stdscr = stdscr
+        self.cursor = 0
+        self.xLoc = xLoc
+        self.yLoc = yLoc
+
+    def draw(self):
+        self.stdscr.addstr(self.yLoc, self.xLoc, ''.join(self.time))
+        self.stdscr.move(self.yLoc, self.xLoc+[0, 1, 3, 4][self.cursor])
+
+
+class SimpleChoice(Window):
+    def __init__(self, stdscr, options, message):
+        self.menu = ChoiceMenu(1, 1, 0, options, stdscr, False)
+        self.message = Text(stdscr, 0, 0, message)
+        legend = 'ESC: back, ENTER: confirm'
+        super().__init__(stdscr, self.menu.actions, legend)
+        self.items = [self.menu, self.message]
+
+    def get(self):
+        while True:
+            self.draw()
+            choice = self.getAction()
+            if choice is not None:
+                return choice
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        return False
+
+
+class PathText():
+    def inp(self, key):
+        if not(key == ord('/') and self.content[-1] == '/'):
+            self.contInsert(chr(key))
+            self.cursor += 1
+        return None
+
+    def bckspc(self):
+        if self.cursor != 1:
+            self.content = self.content[:self.cursor - 1] +\
+                            self.content[self.cursor:]
+            self.cursor -= 1
+        return None
+
+    def left(self):
+        if self.cursor != max(1, self.begin):
+            self.cursor -= 1
+            mvX = self.cursor+self.xLoc-self.begin
+            self.stdscr.move(self.yLoc, mvX)
+        return None
+
+    def right(self):
+        if self.cursor != len(self.content):
+            self.cursor += 1
+            mvX = self.cursor+self.xLoc-self.begin
+            self.stdscr.move(self.yLoc, mvX)
+        return None
+
+    def down(self):
+        return 'menu'
+
+    def tab(self):
+        return 'fill'
+
+    def confirm(self):
+        return True
+
+    def back(self):
+        return 'back'
+
     def contInsert(self, toInsert):
         self.content = self.content[:self.cursor] +\
                         toInsert +\
                         self.content[self.cursor:]
 
-    def __init__(self, x, y, stdscr):
+    def __init__(self, stdscr, x, y):
+        self.actions = {
+            'input': self.inp,
+            curses.KEY_BACKSPACE: self.bckspc,
+            curses.KEY_DOWN: self.down,
+            curses.KEY_LEFT: self.left,
+            curses.KEY_RIGHT: self.right,
+            ENTER_KEY: self.confirm,
+            9: self.tab,
+            BACK_KEY: self.back
+        }
+        self.color = curses.color_pair(0)
         self.stdscr = stdscr
         self.xLoc = x
         self.yLoc = y
@@ -468,44 +542,208 @@ class PathTyper():
         self.done = False
         self.begin = 0
 
-    def draw(self, color):
+    def draw(self):
         prnt = self.content[self.begin:]
-        self.stdscr.addstr(self.yLoc, self.xLoc, prnt, color)
+        self.stdscr.addstr(self.yLoc, self.xLoc, prnt, self.color)
         self.stdscr.move(self.yLoc, self.cursor+self.xLoc-self.begin)
 
-    def getstr(self):
+
+class ReportText():
+    def down(self):
+        if self.drawBegin < self.maxBegin:
+            self.drawBegin += 1
+        return None
+
+    def up(self):
+        if self.drawBegin > 0:
+            self.drawBegin -= 1
+        return None
+
+    def __init__(self, xLoc, yLoc, report, stdscr):
+        self.stdscr = stdscr
+        self.xLoc = xLoc
+        self.yLoc = yLoc
+        self.maxBegin = 2
+        self.report = report
+        self.drawBegin = 0
+
+    def draw(self):
+        counter = 0
+        maxY, maxX = self.stdscr.getmaxyx()
+        self.maxBegin = len(self.report) + 2 - maxY
+        maxY -= 1
+        optLast = maxY+self.drawBegin-(self.yLoc+1)
+        for entry in self.report[self.drawBegin:optLast]:
+            if len(entry) > maxX:
+                dEntry = '...'+entry[-(maxX-3):]
+            else:
+                dEntry = entry
+            self.stdscr.addstr(
+                self.yLoc + counter,
+                self.xLoc,
+                dEntry
+            )
+            counter += 1
+
+
+class PeriodicMenu(Window):
+    def scan(self):
+        if self.remaining < 1:
+            return 'scan'
+        return None
+
+    def __init__(self, stdscr, pth, period, last):
+        self.path = str(pth)
+        self.stdscr = stdscr
+        self.scanTime = period + time.time()
+        self.remaining = int(self.scanTime-time.time())
+        self.pathText = Text(stdscr, 0, 0, f'To scan: {self.path}')
+        self.timeText = Text(stdscr, 1, 1, '')
+        options = {
+            BACK_KEY: lambda: 'back',
+            -1: self.scan
+        }
+        legend = 'ESC: back'
+        super().__init__(stdscr, options, legend)
+        self.items = [self.pathText, self.timeText]
+        if last:
+            self.setStatus('Last scan: Ok', curses.color_pair(2))
+        elif last is None:
+            self.setStatus('scan aborted', curses.color_pair(1))
+
+    def get(self):
         while True:
-            key = self.stdscr.getch()
-            if 177 > key > 40:
-                if key == ord('/') and self.content[-1] == '/':
-                    continue
-                self.contInsert(chr(key))
-                self.cursor += 1
-                return None
-            elif key == curses.KEY_BACKSPACE:
-                if self.cursor != 1:
-                    self.content = self.content[:self.cursor - 1] +\
-                                    self.content[self.cursor:]
-                    self.cursor -= 1
-                    return None
-            elif key == curses.KEY_LEFT:
-                if self.cursor != max(1, self.begin):
-                    self.cursor -= 1
-                    mvX = self.cursor+self.xLoc-self.begin
-                    self.stdscr.move(self.yLoc, mvX)
-            elif key == curses.KEY_RIGHT:
-                if self.cursor != len(self.content):
-                    self.cursor += 1
-                    mvX = self.cursor+self.xLoc-self.begin
-                    self.stdscr.move(self.yLoc, mvX)
-            elif key == curses.KEY_DOWN:
-                return 'menu'
-            elif key == 9:
-                return 'fill'
-            elif key in (curses.KEY_ENTER, 10, 13):
-                return True
-            elif key == 27:
-                return 'back'
+            self.remaining = int(self.scanTime-time.time())
+            self.timeText.text = f'Time to next scan: {self.remaining}s'
+            self.draw()
+            choice = self.getAction()
+            if choice is not None:
+                return choice
+
+    def __enter__(self):
+        self.stdscr.timeout(30)
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.stdscr.timeout(-1)
+        return False
+
+
+class ScanWin(Window):
+    def back(self):
+        self.setStatus('aborting scan...')
+        self.quit(True)
+
+    def __init__(self, scanTh, stdscr, setQuit, getProg):
+        self.quit = setQuit
+        self.progress = getProg
+        self.scanTh = scanTh
+        self.scanText = Text(stdscr, 0, 0, '')
+        self.progText = Text(stdscr, 0, 1, '')
+        legend = 'ESC: abort scan'
+        super().__init__(stdscr, {}, legend)
+        self.items = [self.scanText, self.progText]
+
+    def get(self):
+        while True:
+            prog, filProg, cpth = self.progress()
+            if cpth:
+                self.scanText.text = f'scanning: {cpth} ({filProg}%)'
+            else:
+                self.scanText.text = 'processing...'
+            self.progText.text = f'progress: {prog}%'
+            self.draw()
+            self.scanTh.join(0.05)
+            if self.scanTh.isAlive():
+                if self.stdscr.getch() == BACK_KEY:
+                    self.back()
+            else:
+                break
+
+    def __enter__(self):
+        self.stdscr.timeout(0)
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.stdscr.timeout(-1)
+        self.quit(False)
+        return False
+
+
+class ReportWin(Window):
+    @staticmethod
+    def fromReport(report):
+        reportLines = []
+        if len(report[0] + report[1]) == 0:
+            reportLines.append('No infected files found')
+        else:
+            reportLines.append('The following files were found infected:')
+            for info in (report[0] + report[1]):
+                reportLines.append(f'{info[0]} -> {info[1]}')
+        if report[2]:
+            reportLines.append('Access was denied to the following:')
+            for info in report[2]:
+                reportLines.append(str(info))
+        return reportLines
+
+    def save(self):
+        c = 0
+        savePath = Path('./scanReports/report.txt')
+        while savePath.exists():
+            c += 1
+            savePath = Path(f'./scanReports/report{c}.txt')
+        savePath.write_text('\n'.join(self.text.report))
+        self.setStatus(f'saved to report{c}', curses.color_pair(2))
+
+    def fix(self):
+        if self.triedFix:
+            return None
+        self.triedFix = True
+        fixed = []
+        for toFix in self.fixable:
+            if self.scanner.cutOut(toFix):
+                fixed.append(str(toFix[0]))
+        if fixed:
+            self.text.report.append('The following files were fixed:')
+            self.text.report.extend(fixed)
+            self.setStatus('Fixed successfuly', curses.color_pair(2))
+        else:
+            self.text.report.append('No files could be fixed')
+            self.setStatus('No fixes possible')
+        self.text.maxBegin = len(self.text.report) - 1
+
+    def __init__(self, stdscr, scanner):
+        self.scanner = scanner
+        self.triedFix = False
+        rep = scanner.getReport()
+        self.fixable = rep[0]
+        report = self.fromReport(rep)
+        self.text = ReportText(0, 0, report, stdscr)
+        actions = {
+            curses.KEY_UP: self.text.up,
+            curses.KEY_DOWN: self.text.down,
+            BACK_KEY: lambda: 'back',
+            ord('s'): self.save,
+            ord('f'): self.fix
+        }
+        legend = 'ESC: back, S: save report, F: fix files'
+        super().__init__(stdscr, actions, legend)
+        self.items = [self.text]
+        if scanner.aborted:
+            self.setStatus('scan aborted', curses.color_pair(1))
+
+    def get(self):
+        while True:
+            self.draw()
+            action = self.getAction()
+            if action is not None:
+                return action
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        return False
 
 
 def printCmdResult(report, fixed, denied):

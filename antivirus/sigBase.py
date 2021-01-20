@@ -49,13 +49,13 @@ class SigBase():
                 self._hashSignatures.append(
                     HashSignature(*self.getFields(line, [2, 0, 1]))
                 )
+        self.lenBase = len(self._bodySignatures)
 
     def bodySigInFile(self, hexFile, callback):
-        lenBase = len(self._bodySignatures)
         count = 0
         for sig in self._bodySignatures:
             if callback is not None:
-                if callback((count*100)//lenBase):
+                if callback((count*100)//self.lenBase):
                     return False
             match = sig.match(hexFile)
             if match:
